@@ -1,0 +1,18 @@
+#!/bin/bash
+
+TMP_DIR=$(mktemp -d)
+trap "{ rm -rf $TMP_DIR; }" EXIT
+sudo cp /root/.ssh/hosting_maintenance.pub "$TMP_DIR"
+
+docker run --rm \
+  -it \
+  -v${PWD}:/work \
+  -v${HOME}/.ssh/id_rsa:/root/.ssh/id_rsa:ro \
+  -v${HOME}/.ssh/ostankin_ed25519.pub:/root/.ssh/user_key.pub:ro \
+  -v${TMP_DIR}/hosting_maintenance.pub:/root/.ssh/maintenance_key.pub:ro \
+  -v/mnt/backup/rsnapshot/daily.0/ostankin-hosting/home/ubuntu/ostankin-hosting:/backup:ro \
+  -v${HOME}/s3:/root/s3:ro \
+  -v${HOME}/.ostankin_certbot_credentials:/root/.certbot-secret:ro \
+  -e ANSIBLE_HOST_KEY_CHECKING=false \
+  ostankin/ansible \
+  ansible-playbook -i inventory.yml ostankin-build.yml

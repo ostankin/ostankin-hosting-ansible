@@ -1,0 +1,123 @@
+---
+- hosts: all
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install apt packages
+      apt:
+        name: '{{ item }}'
+      loop:
+        - git
+        - vim
+        - docker
+        - docker.io
+        - python3-pip
+        - python3-setuptools
+
+    - name: Install pip packages
+      pip:
+        name: '{{ item }}'
+      loop:
+        - docker-compose
+
+    - name: Create a regular user
+      user:
+        name: '{{ username }}'
+        shell: /bin/bash
+        uid: 1000
+        groups:
+          - docker
+        append: 'yes'
+
+    - name: Make the user a sudoer
+      copy:
+        content: >-
+          {{ username}} ALL=(ALL) NOPASSWD:ALL
+        dest: '/etc/sudoers.d/{{ username }}'
+        owner: root
+        group: root
+        mode: 0440
+        validate: 'visudo -cf %s'
+
+    - name: Add authorized keys for host access
+      authorized_key:
+        user: '{{ username }}'
+        key: '{{ lookup("file", "/root/.ssh/" + item + "_key.pub") }}'
+      loop:
+        - user
+        - maintenance
+
+    - set_fact:
+        user_home: '/home/{{ username }}'
+
+    - name: Add Bash aliases
+      lineinfile:
+        path: '{{ user_home }}/.bashrc'
+        line: '{{ item }}'
+      loop:
+        - "alias ll='ls -alF'"
+        - "alias la='ls -A'"
+        - "alias l='ls -CF'"
+
+    - name: Fix vim mouse behaviour
+      lineinfile:
+        path: '/etc/vim/vimrc'
+        line: '{{ item }}'
+      loop:
+        - "set mouse-=a"
+
+    - set_fact:
+        hosting_dir: '{{ user_home }}/ostankin-hosting'
+
+    - name: Checkout the latest version of hosting code
+      git:
+        repo: 'https://github.com/ostankin/ostankin-hosting.git'
+        dest: '{{ hosting_dir }}'
+        version: 'master'
+      become: yes
+      become_user: '{{ username }}'
+
+    - name: Copy the latest backup
+      ansible.posix.synchronize:
+        src: '/backup/'
+        dest: '{{ hosting_dir }}'
+
+    - name: Copy stuff from S3
+      ansible.posix.synchronize:
+        src: '/root/s3/'
+        dest: '{{ hosting_dir }}/.data/files'
+      when: false
+
+    - name: Copy certbot credentials
+      copy:
+        src: '/root/.certbot-secret'
+        dest: '{{ hosting_dir }}/.certbot-secret'
+
+    - name: Setup Drupal cron task
+      cron:
+        name: 'drupal cron'
+        cron_file: 'drupal-cron'
+        user: 'root'
+        minute: '48'
+        job: '/usr/bin/curl -s https://myx.ostankin.net/cron.php?cron_key=S0hYCgDWoDeAXTE-AufQMNUTqVPaBNBQls4knV1z-3s'
+
+    - name: Setup monthly nginx reload
+      cron:
+        name: 'nginx reload'
+        cron_file: 'nginx-reload'
+        user: 'root'
+        day: '1'
+        hour: '3'
+        minute: '12'
+        job: 'cd {{ hosting_dir }} && /usr/local/bin/docker-compose exec nginx nginx -s reload >/dev/null'
+
+    - name: Setup nightly backup
+      cron:
+        name: 'nightly backup'
+        cron_file: 'nightly-backup'
+        user: '{{ username }}'
+        hour: '0'
+        minute: '24'
+        job: '{{ hosting_dir }}/create-backup'
