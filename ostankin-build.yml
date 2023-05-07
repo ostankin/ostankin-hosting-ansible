@@ -10,6 +10,8 @@
         name: '{{ item }}'
       loop:
         - git
+        - sudo
+        - rsync
         - vim
         - docker
         - docker.io
@@ -82,18 +84,7 @@
     - name: Copy the latest backup
       ansible.posix.synchronize:
         src: '/backup/'
-        dest: '{{ hosting_dir }}'
-
-    - name: Copy stuff from S3
-      ansible.posix.synchronize:
-        src: '/root/s3/'
-        dest: '{{ hosting_dir }}/.data/files'
-      when: false
-
-    - name: Copy certbot credentials
-      copy:
-        src: '/root/.certbot-secret'
-        dest: '{{ hosting_dir }}/.certbot-secret'
+        dest: '{{ user_home }}'
 
     - name: Setup Drupal cron task
       cron:
@@ -121,3 +112,13 @@
         hour: '0'
         minute: '24'
         job: '{{ hosting_dir }}/create-backup'
+
+    - name: Create and start SSL proxy
+      community.docker.docker_compose:
+        project_src: '{{ user_home }}/ssl_proxy'
+
+    - name: Restore from backup
+      command:
+        cmd: ./restore-from-backup -ay
+        chdir: "{{ hosting_dir }}"
+      become: yes

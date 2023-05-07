@@ -1,5 +1,5 @@
 all:
   hosts:
-    'ostankin.net':
+    '77.232.135.176':
       ansible_python_interpreter: /usr/bin/python3
       username: vlad
